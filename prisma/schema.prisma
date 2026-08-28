@@ -1,0 +1,108 @@
+// The Forge — local-first, weekly build-under-pressure project tracker.
+// SQLite database, same "one file under Application Support" pattern as
+// the rest of the cabin's apps.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+enum ProjectStatus {
+  ACTIVE
+  COMPLETED
+  ABANDONED
+}
+
+// One goal, one deadline. Only one Project is ever ACTIVE at a time —
+// enforced at the application layer, not the schema — so the dashboard
+// never has to juggle more than one countdown.
+model Project {
+  id          String        @id @default(cuid())
+  title       String
+  description String?
+  techStack   String?
+
+  startAt    DateTime @default(now())
+  deadlineAt DateTime
+
+  status      ProjectStatus @default(ACTIVE)
+  completedAt DateTime?
+
+  // A reflection note, filled in on completing or abandoning — the honest
+  // record of what actually happened, not just the outcome.
+  retro String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  milestones  Milestone[]
+  checkIns    CheckIn[]
+  focusLogs   FocusLog[]
+  linkedBooks LinkedBook[]
+
+  @@index([status])
+}
+
+model Milestone {
+  id         String   @id @default(cuid())
+  projectId  String
+  project    Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  title       String
+  order       Int
+  completed   Boolean   @default(false)
+  completedAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@index([projectId])
+}
+
+// A short daily log entry — what got built, what blocked you, what you
+// learned. One per project per day (re-submitting today just edits it).
+model CheckIn {
+  id        String   @id @default(cuid())
+  projectId String
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  date     DateTime // local-midnight day key
+  built    String
+  blockers String?
+  learned  String?
+
+  createdAt DateTime @default(now())
+
+  @@unique([projectId, date])
+}
+
+// One row per project per day, counting completed pomodoro-style work
+// sessions — the substrate for the Forge Shelf's "N focus sessions" stat.
+model FocusLog {
+  id        String   @id @default(cuid())
+  projectId String
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  date  DateTime
+  count Int      @default(0)
+
+  @@unique([projectId, date])
+}
+
+// A book from Reading Cabin's library, linked to this project as fuel for
+// it. textbookId is a soft cross-app reference (Reading Cabin's own
+// Textbook.id) — no real foreign key, since the two apps keep separate
+// SQLite databases. Live title/cover/progress is always fetched fresh from
+// Reading Cabin's API, never cached here.
+model LinkedBook {
+  id         String   @id @default(cuid())
+  projectId  String
+  project    Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  textbookId String
+  addedAt    DateTime @default(now())
+
+  @@unique([projectId, textbookId])
+}
